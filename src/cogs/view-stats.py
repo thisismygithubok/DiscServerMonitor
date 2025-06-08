@@ -147,6 +147,8 @@ class ViewStats(commands.Cog):
                 if len(row) < 6:
                     continue
                 mounted_on = row[5]
+                if mounted_on.startswith("/proc") or mounted_on.startswith("/sys") or mounted_on.startswith("/dev"):
+                    continue
                 used = row[2]
                 available = row[3]
                 pt.add_row([mounted_on, used, available])
