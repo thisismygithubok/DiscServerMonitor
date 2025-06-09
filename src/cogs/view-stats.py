@@ -1,6 +1,5 @@
 import os
 import asyncio
-import json
 import discord
 import logging
 import subprocess
@@ -30,7 +29,7 @@ class ViewStats(commands.Cog):
 
     def get_cpu_stat(self, proc_root="/proc/stat"):
         cpu_stats = {}
-        cpu_error = [str, str] = {}
+        cpu_error = {}
         try:
             with open(f"{proc_root}", "r") as f:
                 for line in f:
