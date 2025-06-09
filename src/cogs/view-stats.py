@@ -50,10 +50,6 @@ class ViewStats(commands.Cog):
         return cpu_stats
 
     async def get_current_cpu_usage(self, proc_root="/proc/stat") -> float:
-        """
-        Reads /proc/stat twice (separated by 1 second) and computes the difference.
-        Returns the CPU utilization over that interval.
-        """
         # Get the first reading.
         stat1 = self.get_cpu_stat(proc_root)
         await asyncio.sleep(1)
@@ -99,29 +95,6 @@ class ViewStats(commands.Cog):
             return f"{used_gb:.2f} GB / {total_gb:.2f} GB"
         except Exception as e:
             return f"Error: {e}"
-
-    def calculate_cpu_usage(self, cpu_stats: dict) -> float:
-        """
-        Using cumulative CPU times from /proc/stat, calculates the average CPU usage percentage.
-        Note: This is an average since boot. For an instantaneous reading,
-              you would need to compare two readings over a short interval.
-        """
-        try:
-            user = cpu_stats.get("user", 0)
-            nice = cpu_stats.get("nice", 0)
-            system = cpu_stats.get("system", 0)
-            idle = cpu_stats.get("idle", 0)
-            iowait = cpu_stats.get("iowait", 0)
-            irq = cpu_stats.get("irq", 0)
-            softirq = cpu_stats.get("softirq", 0)
-            total = user + nice + system + idle + iowait + irq + softirq
-            # Active time excludes idle and iowait.
-            active = total - idle - iowait
-            if total == 0:
-                return 0.0
-            return (active / total) * 100
-        except Exception:
-            return 0.0
 
     def format_uptime(self, uptime_seconds: float) -> str:
         try:
