@@ -48,7 +48,7 @@ volumes:
 ## Setting Up a Discord Bot ##
 1. Navigate to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Create a new application
-    - Name it whatever you'd like the app to be named, in this case I've used "DiscContainerController"
+    - Name it whatever you'd like the app to be named, in this case I've used "DiscServerMonitor"
 3. On the "General Information" page, give it a name and description.
 4. On the "Installation" page, change the install link to "None"
 5. On the "Bot" page, disable "Public Bot", and enable "Message Content Intent"  
