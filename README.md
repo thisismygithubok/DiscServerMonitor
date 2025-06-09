@@ -39,7 +39,8 @@ environment:
 ```
 
 ## Volumes ##
-You need to mount the host's /proc as a volume to the container to be able to see system stats. If you'd like to see usage stats on other drives than the boot drive, you'll need to mount them as well.
+You need to mount the host's /proc as a volume to the container to be able to see system stats. 
+If you'd like to see usage stats on other drives than the boot drive, you'll need to mount them as well.
 ```
 volumes:
     - /proc:/host_proc:ro
