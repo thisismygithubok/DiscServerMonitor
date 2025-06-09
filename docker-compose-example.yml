@@ -1,0 +1,11 @@
+services:
+  DiscServerMonitor:
+    image: thisismynameok/disc-server-monitor:latest
+    container_name: DiscServerMonitor
+    restart: always
+    environment:
+      DISCORD_BOT_TOKEN: $DISCORD_BOT_TOKEN
+      DISCORD_GUILD_ID: $DISCORD_GUILD_ID
+      TZ: $TZ
+    volumes:
+        - /proc:/host_proc:ro
