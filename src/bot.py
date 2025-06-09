@@ -1,7 +1,6 @@
 import os
 import discord
 import logging
-import scripts.settings as settings
 from discord import app_commands
 from discord.ext import commands
 
@@ -33,13 +32,6 @@ if not DISCORD_GUILD_ID:
     logger.error("DISCORD_GUILD_ID is not set in the environment variables")
     raise ValueError("DISCORD_GUILD_ID is required to run the bot")
 
-async def load_settings():
-    logger.info('Loading settings...')
-    try:
-        settings.check_settings_file()
-    except Exception as e:
-        logger.error(f'Error loading settings: {e}')
-
 async def load_cogs():
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py'):
@@ -49,10 +41,7 @@ async def load_cogs():
 @bot.event
 async def on_ready():
     logger.info(f'Bot is ready and logged in as {bot.user}')
-    try:
-        await load_settings()
-        logger.info('Settings loaded successfully')
-        
+    try:        
         await load_cogs()
         logger.info("Cogs loaded successfully")
 
