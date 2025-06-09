@@ -30,6 +30,7 @@ class ViewStats(commands.Cog):
 
     def get_cpu_stat(self, proc_root="/proc/stat"):
         cpu_stats = {}
+        cpu_error = [str, str] = {}
         try:
             with open(f"{proc_root}", "r") as f:
                 for line in f:
@@ -46,7 +47,7 @@ class ViewStats(commands.Cog):
                         }
                         break
         except Exception as e:
-            cpu_stats['error'] = f"Error reading CPU stat: {e}"
+            cpu_error['error'] = f"Error reading CPU stat: {e}"
         return cpu_stats
 
     async def get_current_cpu_usage(self, proc_root="/proc/stat") -> float:
@@ -137,13 +138,12 @@ class ViewStats(commands.Cog):
         proc_root_stat = "/proc/stat"
         proc_root_uptime = "/proc/uptime"
         meminfo = self.get_meminfo(proc_root_meminfo)
-        cpu_stat = self.get_cpu_stat(proc_root_stat)
         uptime_info = self.get_uptime(proc_root_uptime)
 
         # Format system metrics.
         memory_usage = self.format_memory_usage(meminfo)
         current_cpu = await self.get_current_cpu_usage(proc_root_stat)
-        formatted_uptime = self.format_uptime(uptime_info.get("uptime_seconds", 0))
+        formatted_uptime = self.format_uptime(float(uptime_info.get("uptime_seconds", 0)))
 
         system_data = {
             "Memory Usage": memory_usage,
