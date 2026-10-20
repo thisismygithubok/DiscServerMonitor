@@ -2,7 +2,6 @@ import os
 import asyncio
 import discord
 import logging
-import subprocess
 from discord import app_commands
 from discord.ext import commands
 from prettytable import PrettyTable
@@ -10,6 +9,8 @@ from prettytable import PrettyTable
 logger = logging.getLogger(__name__)
 
 DISCORD_GUILD_ID = os.environ.get('DISCORD_GUILD_ID')
+# Host /proc is bind-mounted here; fall back to the container's own /proc if it isn't.
+PROC_ROOT = "/host_proc" if os.path.isdir("/host_proc") else "/proc"
 
 class ViewStats(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -29,7 +30,6 @@ class ViewStats(commands.Cog):
 
     def get_cpu_stat(self, proc_root="/proc/stat"):
         cpu_stats = {}
-        cpu_error = {}
         try:
             with open(f"{proc_root}", "r") as f:
                 for line in f:
@@ -46,15 +46,17 @@ class ViewStats(commands.Cog):
                         }
                         break
         except Exception as e:
-            cpu_error['error'] = f"Error reading CPU stat: {e}"
+            logger.error("Error reading CPU stat: %s", e)
         return cpu_stats
 
-    async def get_current_cpu_usage(self, proc_root="/proc/stat") -> float:
+    async def get_current_cpu_usage(self, proc_root="/proc/stat") -> float | None:
         # Get the first reading.
         stat1 = self.get_cpu_stat(proc_root)
         await asyncio.sleep(1)
         # Get the second reading.
         stat2 = self.get_cpu_stat(proc_root)
+        if not stat1 or not stat2:
+            return None
 
         # Sum up all CPU times for each reading.
         total1 = sum(stat1.get(k, 0) for k in ("user", "nice", "system", "idle", "iowait", "irq", "softirq"))
@@ -107,10 +109,16 @@ class ViewStats(commands.Cog):
         except Exception as e:
             return f"Error: {e}"
         
-    def get_disk_usage(self) -> str:
+    async def get_disk_usage(self) -> str:
         try:
-            result = subprocess.run(["df", "-h"], capture_output=True, text=True, check=True)
-            lines = result.stdout.strip().splitlines()
+            proc = await asyncio.create_subprocess_exec(
+                "df", "-h", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                logger.error("Error running 'df -h': %s", stderr.decode().strip())
+                return f"Error retrieving disk usage: {stderr.decode().strip()}"
+            lines = stdout.decode().strip().splitlines()
             if not lines:
                 return "No disk usage data available"
             pt = PrettyTable(["Mounted On", "Used", "Available"])
@@ -120,22 +128,23 @@ class ViewStats(commands.Cog):
                 if len(row) < 6:
                     continue
                 mounted_on = row[5]
-                if mounted_on.startswith("/proc") or mounted_on.startswith("/sys") or mounted_on.startswith("/dev"):
+                # /etc/* are Docker's per-container resolv.conf/hostname/hosts file mounts
+                if mounted_on.startswith(("/proc", "/sys", "/dev", "/etc/")):
                     continue
                 used = row[2]
                 available = row[3]
                 pt.add_row([mounted_on, used, available])
             return pt.get_string()
-        except subprocess.CalledProcessError as e:
+        except OSError as e:
             logger.error("Error running 'df -h': %s", e)
             return f"Error retrieving disk usage: {e}"
 
     @app_commands.command(name='view-stats', description='See system stats on host')
     @app_commands.guilds(discord.Object(id=DISCORD_GUILD_ID)) # type: ignore
     async def view_stats(self, interaction: discord.Interaction):
-        proc_root_meminfo = "/proc/meminfo"
-        proc_root_stat = "/proc/stat"
-        proc_root_uptime = "/proc/uptime"
+        proc_root_meminfo = f"{PROC_ROOT}/meminfo"
+        proc_root_stat = f"{PROC_ROOT}/stat"
+        proc_root_uptime = f"{PROC_ROOT}/uptime"
         meminfo = self.get_meminfo(proc_root_meminfo)
         uptime_info = self.get_uptime(proc_root_uptime)
 
@@ -146,7 +155,7 @@ class ViewStats(commands.Cog):
 
         system_data = {
             "Memory Usage": memory_usage,
-            "CPU Usage": f"{current_cpu:.2f}%",
+            "CPU Usage": f"{current_cpu:.2f}%" if current_cpu is not None else "Unavailable",
             "Uptime": formatted_uptime
         }
 
@@ -155,7 +164,7 @@ class ViewStats(commands.Cog):
             pt_sys.add_row([metric, value])
         system_table_str = pt_sys.get_string()
 
-        disk_usage_str = self.get_disk_usage()
+        disk_usage_str = await self.get_disk_usage()
 
         system_embed = discord.Embed(
             title="System Stats",

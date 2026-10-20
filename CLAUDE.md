@@ -35,14 +35,14 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 
 - `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix` returns `[]` so text messages are ignored.
 - `src/cogs/`: one cog per slash command (`/ping`, `/view-stats`). Each command is guild-scoped with `@app_commands.guilds(...)`; there is intentionally no `copy_global_to`. Cog filenames contain hyphens, so they are only loadable as extensions, not importable normally.
-- `/view-stats`: memory from `/proc/meminfo`, CPU % from two `/proc/stat` samples 1s apart, uptime from `/proc/uptime`, disk usage from `df -h` (filters `/proc`, `/sys`, `/dev` mounts). Output is two PrettyTable embeds, ephemeral, auto-deleted after 30s.
+- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage from async `df -h` (filters `/proc`, `/sys`, `/dev`, and Docker's `/etc/*` file mounts). A failed CPU read shows "Unavailable". Output is two PrettyTable embeds, ephemeral, auto-deleted after 30s.
 - No permissions model: anyone in the guild can run every command.
 
 ## Container/image details that matter
 
 - `src/entrypoint.sh` runs as root: applies `TZ`, then `exec su-exec nonroot`.
 - The image has no docker CLI and no docker group; this bot never talks to the docker socket.
-- The `/proc:/host_proc:ro` mount in the README is currently not read by the code (it reads the container's `/proc`, which shows host-wide memory/CPU/uptime anyway unless lxcfs is in use). Pending fix.
+- Stats are read from the `/proc:/host_proc:ro` mount. Without it the container's `/proc` is used, which still shows host-wide memory/CPU/uptime unless lxcfs is in use.
 - `df -h` only sees the container's mounts; host drives must be bind-mounted to show up.
 - pip is uninstalled from the runtime venv after install (removes vendored-library CVEs), so nothing can be pip-installed at runtime.
 - `discord.py` is unpinned.
