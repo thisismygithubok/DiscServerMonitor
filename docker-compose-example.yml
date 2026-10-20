@@ -9,3 +9,4 @@ services:
       TZ: $TZ
     volumes:
         - /proc:/host_proc:ro
+        - /:/host:ro,rslave

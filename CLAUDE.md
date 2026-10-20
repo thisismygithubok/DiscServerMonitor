@@ -14,9 +14,12 @@ There is no test suite, linter, or CI. Everything is built and run via Docker.
 # Build locally (native arch)
 docker build -t dsm-test .
 
+# Self-check for the mount table parser (the only test)
+docker run --rm --entrypoint python3 -e DISCORD_GUILD_ID=1 dsm-test cogs/view-stats.py
+
 # Run the bot locally (needs a real token/guild; see "Testing" below)
 docker run --rm -e DISCORD_BOT_TOKEN=... -e DISCORD_GUILD_ID=... \
-  -v /proc:/host_proc:ro dsm-test
+  -v /proc:/host_proc:ro -v /:/host:ro,rslave dsm-test
 
 # Check startup without connecting to a live session: a dummy token fails at login
 docker run --rm -e DISCORD_BOT_TOKEN=invalid -e DISCORD_GUILD_ID=1 dsm-test
@@ -35,7 +38,7 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 
 - `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix` returns `[]` so text messages are ignored.
 - `src/cogs/`: one cog per slash command (`/ping`, `/view-stats`). Each command is guild-scoped with `@app_commands.guilds(...)`; there is intentionally no `copy_global_to`. Cog filenames contain hyphens, so they are only loadable as extensions, not importable normally.
-- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage from async `df -h` (filters `/proc`, `/sys`, `/dev`, and Docker's `/etc/*` file mounts). A failed CPU read shows "Unavailable". Output is two PrettyTable embeds, ephemeral, auto-deleted after 30s.
+- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), runtime paths (`SKIPPED_MOUNT_PREFIXES`) and repeat mounts of the same device, then `os.statvfs` measures each under `/host` (in a thread, since a dead network mount can block). Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". Output is two PrettyTable embeds, ephemeral, auto-deleted after 30s.
 - No permissions model: anyone in the guild can run every command.
 
 ## Container/image details that matter
@@ -43,7 +46,7 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 - `src/entrypoint.sh` runs as root: applies `TZ`, then `exec su-exec nonroot`.
 - The image has no docker CLI and no docker group; this bot never talks to the docker socket.
 - Stats are read from the `/proc:/host_proc:ro` mount. Without it the container's `/proc` is used, which still shows host-wide memory/CPU/uptime unless lxcfs is in use.
-- `df -h` only sees the container's mounts; host drives must be bind-mounted to show up.
+- Host drives are visible through the `/:/host:ro,rslave` mount (read-only; `rslave` makes drives mounted after container start show up, but Docker refuses it where host `/` isn't a shared mount, e.g. Docker Desktop, so test there with `/:/host:ro`). The bot runs as uid 1000, so it can only read world-readable host files.
 - pip is uninstalled from the runtime venv after install (removes vendored-library CVEs), so nothing can be pip-installed at runtime.
 - `discord.py` is unpinned.
 
