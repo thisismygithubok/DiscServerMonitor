@@ -11,4 +11,4 @@ else
     echo "No TZ environment variable set, using default"
 fi
 
-exec gosu nonroot "$@"
+exec su-exec nonroot "$@"

@@ -6,9 +6,10 @@ A docker-based discord bot to help monitor the host system.
 <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/thisismygithubok/DiscServerMonitor?color=brightgreen&style=for-the-badge">
 <img alt="GitHub" src="https://img.shields.io/github/license/thisismygithubok/DiscServerMonitor?style=for-the-badge"></p>
 
-## Slash Command ##
-This bot is currently, a singular slash commands to use:
-- /view-stats
+## Slash Commands ##
+This bot has the following slash commands to use:
+- /ping - does a simple check to see if the bot is online and responding
+- /view-stats - shows host memory, CPU, uptime, and disk usage
 
 ## Docker Run ##
 ```

@@ -1,24 +1,22 @@
-FROM alpine:3
+FROM alpine:3.24
 
 WORKDIR /src
-RUN mkdir /config
 
 COPY src/ .
 COPY src/entrypoint.sh /entrypoint.sh
 
-RUN apk update && apk upgrade
-RUN apk add docker-cli python3 py3-pip tzdata gosu
+RUN apk add python3 tzdata su-exec
 
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-RUN pip3 install discord.py prettytable setuptools>=78.1.1
+# pip is only needed at build time; removing it drops its vendored urllib3/msgpack CVEs
+RUN pip3 install discord.py prettytable "setuptools>=78.1.1" && pip3 uninstall -y pip
 
 # Non-Root Docker
-RUN addgroup -S -g 988 docker && \
-    adduser -S -D -H -h /src -s /sbin/nologin -G docker -u 1000 nonroot && \
-    adduser nonroot docker && \
-    chown -R nonroot:docker /src /entrypoint.sh && \
+RUN addgroup -S -g 1000 nonroot && \
+    adduser -S -D -H -h /src -s /sbin/nologin -G nonroot -u 1000 nonroot && \
+    chown -R nonroot:nonroot /src /entrypoint.sh && \
     chmod -R 755 /src /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
