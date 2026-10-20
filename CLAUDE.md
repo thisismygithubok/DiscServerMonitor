@@ -14,7 +14,7 @@ There is no test suite, linter, or CI. Everything is built and run via Docker.
 # Build locally (native arch)
 docker build -t dsm-test .
 
-# Self-check for the mount table parser (the only test)
+# Self-check for the mount table parser and disk table truncation (the only test)
 docker run --rm --entrypoint python3 -e DISCORD_GUILD_ID=1 dsm-test cogs/view-stats.py
 
 # Run the bot locally (needs a real token/guild; see "Testing" below)
@@ -38,7 +38,7 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 
 - `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix` returns `[]` so text messages are ignored.
 - `src/cogs/`: one cog per slash command (`/ping`, `/view-stats`). Each command is guild-scoped with `@app_commands.guilds(...)`; there is intentionally no `copy_global_to`. Cog filenames contain hyphens, so they are only loadable as extensions, not importable normally.
-- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), runtime paths (`SKIPPED_MOUNT_PREFIXES`) and repeat mounts of the same device, then `os.statvfs` measures each under `/host` (in a thread, since a dead network mount can block). Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". Output is two PrettyTable embeds, ephemeral, auto-deleted after 30s.
+- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), runtime paths (`SKIPPED_MOUNT_PREFIXES`) and repeat mounts of the same device, skips mount points on the same filesystem as their parent (not actually mounted from the container's view), then `os.statvfs` measures each under `/host`. This runs on a dedicated single-thread executor with a 5s timeout, so a dead network mount can't starve the default pool or hang the command. The table is cut off with a "... N more" row before the 4096-char embed limit. Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". The command defers first (CPU sampling alone takes 1s, Discord's initial-response deadline is 3s), then sends two PrettyTable embeds as an ephemeral followup and deletes it after 30s.
 - No permissions model: anyone in the guild can run every command.
 
 ## Container/image details that matter
@@ -46,7 +46,7 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 - `src/entrypoint.sh` runs as root: applies `TZ`, then `exec su-exec nonroot`.
 - The image has no docker CLI and no docker group; this bot never talks to the docker socket.
 - Stats are read from the `/proc:/host_proc:ro` mount. Without it the container's `/proc` is used, which still shows host-wide memory/CPU/uptime unless lxcfs is in use.
-- Host drives are visible through the `/:/host:ro,rslave` mount (read-only; `rslave` makes drives mounted after container start show up, but Docker refuses it where host `/` isn't a shared mount, e.g. Docker Desktop, so test there with `/:/host:ro`). The bot runs as uid 1000, so it can only read world-readable host files.
+- Host drives are visible through the `/:/host:ro,rslave` mount (read-only; `rslave` makes drives mounted after container start show up, but Docker refuses it where host `/` isn't a shared mount, e.g. Docker Desktop, so test there with `/:/host:ro`). The bot runs as uid/gid 10001 so it can't match a real host user (uid 1000 usually is, and its files and `/proc/<pid>/environ` would be readable); keep it that way.
 - pip is uninstalled from the runtime venv after install (removes vendored-library CVEs), so nothing can be pip-installed at runtime.
 - `discord.py` is unpinned.
 
