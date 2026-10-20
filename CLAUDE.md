@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Discord bot (discord.py, slash commands only, single guild) that runs in a container and reports host system stats (memory, CPU, uptime, disk usage) by reading `/proc` and running `df -h`. There is no local dev environment beyond the image. Sibling project: DiscContainerController (same bot skeleton).
+A Discord bot (discord.py, slash commands only, single guild) that runs in a container and reports host system stats (memory, CPU, uptime, disk usage) by reading the host's `/proc` and measuring each host filesystem with `os.statvfs`. There is no local dev environment beyond the image. Sibling project: DiscContainerController (same bot skeleton).
 
 ## Commands
 
@@ -24,9 +24,9 @@ docker run --rm -e DISCORD_BOT_TOKEN=... -e DISCORD_GUILD_ID=... \
 # Check startup without connecting to a live session: a dummy token fails at login
 docker run --rm -e DISCORD_BOT_TOKEN=invalid -e DISCORD_GUILD_ID=1 dsm-test
 
-# Publish (always multi-arch; prod host is amd64, dev machine may be arm64)
+# Publish (always multi-arch; prod host is amd64, dev machine may be arm64), from main after merge
 docker buildx build --builder multi-builder --platform linux/amd64,linux/arm64 \
-  -t thisismynameok/disc-server-monitor:latest --push .
+  -t thisismynameok/disc-server-monitor:vX.Y.Z -t thisismynameok/disc-server-monitor:latest --push .
 
 # Vulnerability scan
 docker scout cves --only-severity critical,high --format only-packages <image>
@@ -34,11 +34,13 @@ docker scout cves --only-severity critical,high --format only-packages <image>
 
 Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 
+Release flow: work on a branch, open a PR, squash-merge to `main`, then `gh release create vX.Y.Z --target main` (patch bump, one-paragraph summary ending "See #<PR>.") and push the image as both `vX.Y.Z` and `latest`. Tags are `v`-prefixed on GitHub and Docker Hub.
+
 ## Architecture
 
 - `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix` returns `[]` so text messages are ignored.
 - `src/cogs/`: one cog per slash command (`/ping`, `/view-stats`). Each command is guild-scoped with `@app_commands.guilds(...)`; there is intentionally no `copy_global_to`. Cog filenames contain hyphens, so they are only loadable as extensions, not importable normally.
-- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), runtime paths (`SKIPPED_MOUNT_PREFIXES`) and repeat mounts of the same device, skips mount points on the same filesystem as their parent (not actually mounted from the container's view), then `os.statvfs` measures each under `/host`. This runs on a dedicated single-thread executor with a 5s timeout, so a dead network mount can't starve the default pool or hang the command. The table is cut off with a "... N more" row before the 4096-char embed limit. Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". The command defers first (CPU sampling alone takes 1s, Discord's initial-response deadline is 3s), then sends two PrettyTable embeds as an ephemeral followup and deletes it after 30s.
+- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), system dirs (`SYSTEM_DIRS`: the dir and everything under it), per-container runtime mounts (`RUNTIME_DIRS`: only what's under them, so a dedicated `/var/lib/docker` disk still shows) and repeat mounts of the same device, skips mount points on the same filesystem as their parent (not actually mounted from the container's view), then `os.statvfs` measures each under `/host`. This runs on a dedicated single-thread executor with a 5s timeout, so a dead network mount can't starve the default pool or hang the command. The table is cut off with a "... N more" row before the 4096-char embed limit. Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". The command defers first (CPU sampling alone takes 1s, Discord's initial-response deadline is 3s), then sends two PrettyTable embeds as an ephemeral followup and deletes it after 30s.
 - No permissions model: anyone in the guild can run every command.
 
 ## Container/image details that matter
@@ -56,4 +58,6 @@ Docker Hub image name is `thisismynameok/disc-server-monitor` (hyphenated).
 
 ## Testing against Discord
 
-Slash commands can't be invoked by the bot itself; a human has to run them in Discord. Running a second instance with the **same token** as a deployed bot makes both receive every command, and whichever responds first wins. Stop the deployed instance first, or use a separate bot application.
+Slash commands can't be invoked by the bot itself; a human has to run them in Discord. A command that succeeds logs nothing, so ask the person what they saw. For `/view-stats` flow changes without Discord, call `ViewStats.view_stats.callback(cog, fake_interaction)` with stub `response.defer`, `followup.send` and `delete_original_response`.
+
+On Docker Desktop, `/host` shows the Linux VM's mounts (e.g. `/host_mnt/*`), not the Mac's, and `rslave` is refused; use `/:/host:ro` there. Running a second instance with the **same token** as a deployed bot makes both receive every command, and whichever responds first wins. Stop the deployed instance first, or use a separate bot application.
