@@ -6,13 +6,14 @@ A docker-based discord bot to help monitor the host system.
 <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/thisismygithubok/DiscServerMonitor?color=brightgreen&style=for-the-badge">
 <img alt="GitHub" src="https://img.shields.io/github/license/thisismygithubok/DiscServerMonitor?style=for-the-badge"></p>
 
-## Slash Command ##
-This bot is currently, a singular slash commands to use:
-- /view-stats
+## Slash Commands ##
+This bot has the following slash commands to use:
+- /ping - does a simple check to see if the bot is online and responding
+- /view-stats - shows host memory, CPU, uptime, and disk usage
 
 ## Docker Run ##
 ```
-docker run -e DISCORD_GUILD_ID=<your_guild_id> -e DISCORD_BOT_TOKEN=<your_bot_token> -e TZ=<your_tz> -v /proc:/host_proc:ro thisismynameok/disc-server-monitor:latest
+docker run -e DISCORD_GUILD_ID=<your_guild_id> -e DISCORD_BOT_TOKEN=<your_bot_token> -e TZ=<your_tz> -v /proc:/host_proc:ro -v /:/host:ro,rslave thisismynameok/disc-server-monitor:latest
 ```
 
 ## Docker Compose ##
@@ -39,12 +40,16 @@ environment:
 ```
 
 ## Volumes ##
-You need to mount the host's /proc as a volume to the container to be able to see system stats. 
-If you'd like to see usage stats on other drives than the boot drive, you'll need to mount them as well.
+You need to mount the host's /proc as a volume to the container to be able to see system stats.
+To see disk usage for every drive on the host, also mount the host's root filesystem read-only. The bot reads the host's mount table and reports each real filesystem (virtual filesystems, tmpfs, and Docker internals are skipped).
 ```
 volumes:
     - /proc:/host_proc:ro
+    - /:/host:ro,rslave
 ```
+`rslave` makes drives mounted after the container starts show up too. If Docker refuses to start with `path / is mounted on / but it is not a shared or slave mount` (e.g. Docker Desktop), use `/:/host:ro` instead.
+
+Without the `/host` mount, disk usage only covers the container's own filesystems.
 
 ## Setting Up a Discord Bot ##
 1. Navigate to the [Discord Developer Portal](https://discord.com/developers/applications)
