@@ -9,7 +9,7 @@ A docker-based discord bot to help monitor the host system.
 ## Slash Commands ##
 This bot has the following slash commands to use:
 - /ping - does a simple check to see if the bot is online and responding
-- /view-stats - shows host memory, CPU, uptime, and disk usage
+- /view-stats - shows host memory, CPU, uptime, and disk usage. The reply is only visible to you and deletes itself after 30 seconds.
 
 ## Docker Run ##
 ```
@@ -51,13 +51,16 @@ volumes:
 
 Without the `/host` mount, disk usage only covers the container's own filesystems.
 
+## Logging ##
+The bot logs to the container output (`docker logs DiscServerMonitor`). If the bot can't start (for example DISCORD_GUILD_ID isn't a number), it exits with an error in the logs instead of running without commands.
+
 ## Setting Up a Discord Bot ##
 1. Navigate to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Create a new application
     - Name it whatever you'd like the app to be named, in this case I've used "DiscServerMonitor"
 3. On the "General Information" page, give it a name and description.
 4. On the "Installation" page, change the install link to "None"
-5. On the "Bot" page, disable "Public Bot", and enable "Message Content Intent"  
+5. On the "Bot" page, disable "Public Bot". No privileged intents are needed.  
     - On this same page, make sure to copy your TOKEN as you'll need to pass this to the container
 6. On the "OAuth2" page, in the OAuth2 URL Generator section, choose "bot".
     - In the "Bot Permissions" section below this, in text permissions, choose "Send Messages" and "Manage Messages".

@@ -8,11 +8,15 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # pip is only needed at build time; removing it drops its vendored urllib3/msgpack CVEs
-RUN pip3 install discord.py prettytable "setuptools>=78.1.1" && pip3 uninstall -y pip
+# Pinned so a rebuild can't pull a breaking discord.py release; bump deliberately
+RUN pip3 install discord.py==2.7.1 && pip3 uninstall -y pip
 
 # Copied after the installs so code changes don't invalidate the package layers
 COPY src/ .
 COPY src/entrypoint.sh /entrypoint.sh
+
+# Fail the build if the self-check fails
+RUN PYTHONDONTWRITEBYTECODE=1 DISCORD_GUILD_ID=1 python3 cogs/view-stats.py
 
 # Non-Root Docker: uid/gid 10001 so it can't match a real host user (uid 1000 is usually the host owner,
 # whose files would then be readable through the /host and /host_proc mounts)

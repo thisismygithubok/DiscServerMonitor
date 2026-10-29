@@ -6,7 +6,6 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from discord import app_commands
 from discord.ext import commands
-from prettytable import PrettyTable
 
 logger = logging.getLogger(__name__)
 
@@ -65,18 +64,21 @@ def format_bytes(num: float) -> str:
         num /= 1024
     return f"{num:.1f}P"
 
+def format_table(header: list[str], rows: list[list[str]]) -> str:
+    """Plain fixed-width table: header, dashes, then one line per row."""
+    widths = [max(len(cell) for cell in column) for column in zip(header, *rows)]
+    lines = [header, ["-" * w for w in widths], *rows]
+    return "\n".join("  ".join(f"{cell:<{w}}" for cell, w in zip(line, widths)).rstrip() for line in lines)
+
 def format_disk_table(rows: list[list[str]]) -> str:
     """Render disk rows, cutting off with a "... N more" row before the embed size limit."""
     if not rows:
         return "No disk usage data available"
-    pt = PrettyTable(["Mounted On", "Used", "Available"])
-    for i, row in enumerate(rows):
-        pt.add_row(row)
-        if len(pt.get_string()) > DISK_TABLE_MAX_CHARS:
-            pt.del_row(len(pt.rows) - 1)
-            pt.add_row([f"... {len(rows) - i} more", "", ""])
-            break
-    return pt.get_string()
+    header = ["Mounted On", "Used", "Available"]
+    for i in range(len(rows)):
+        if len(format_table(header, rows[:i + 1])) > DISK_TABLE_MAX_CHARS:
+            return format_table(header, rows[:i] + [[f"... {len(rows) - i} more", "", ""]])
+    return format_table(header, rows)
 
 class ViewStats(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -226,10 +228,7 @@ class ViewStats(commands.Cog):
             "Uptime": formatted_uptime
         }
 
-        pt_sys = PrettyTable(["Metric", "Value"])
-        for metric, value in system_data.items():
-            pt_sys.add_row([metric, value])
-        system_table_str = pt_sys.get_string()
+        system_table_str = format_table(["Metric", "Value"], [list(item) for item in system_data.items()])
 
         # statvfs can block on a dead network mount, so keep it off the event loop and bound the wait
         try:
@@ -254,12 +253,8 @@ class ViewStats(commands.Cog):
         )
 
         # The first followup after a deferred response replaces the "thinking" message, i.e. the original response
-        await interaction.followup.send(embeds=[system_embed, disk_embed], ephemeral=True)
-        await asyncio.sleep(30)
-        try:
-            await interaction.delete_original_response()
-        except discord.HTTPException:
-            pass
+        message = await interaction.followup.send(embeds=[system_embed, disk_embed], ephemeral=True, wait=True)
+        await message.delete(delay=30)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ViewStats(bot))
@@ -286,7 +281,8 @@ if __name__ == "__main__":
 
     many = [[f"/tank/dataset{i:03d}", "1.0G", "2.0T"] for i in range(200)]
     table = format_disk_table(many)
-    assert len(table) <= DISK_TABLE_MAX_CHARS + 200 and "more" in table.splitlines()[-2], table[-300:]
+    assert len(table) <= DISK_TABLE_MAX_CHARS + 200 and table.splitlines()[-1].startswith("... "), table[-300:]
+    assert format_table(["A", "Bee"], [["long", "x"]]) == "A     Bee\n----  ---\nlong  x"
     assert "more" not in format_disk_table(many[:3])
     assert format_disk_table([]) == "No disk usage data available"
     print("view-stats self-check passed")

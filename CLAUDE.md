@@ -14,7 +14,7 @@ There is no test suite, linter, or CI. Everything is built and run via Docker.
 # Build locally (native arch)
 docker build -t dsm-test .
 
-# Self-check for the mount table parser and disk table truncation (the only test)
+# Self-check for the mount table parser and table formatting (the only test; also run by `docker build`, which fails if it fails)
 docker run --rm --entrypoint python3 -e DISCORD_GUILD_ID=1 dsm-test cogs/view-stats.py
 
 # Run the bot locally (needs a real token/guild; see "Testing" below)
@@ -38,9 +38,9 @@ Release flow: work on a branch, open a PR, squash-merge to `main`, then `gh rele
 
 ## Architecture
 
-- `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix` returns `[]` so text messages are ignored.
+- `src/bot.py`: the entry point. Validates `DISCORD_BOT_TOKEN`/`DISCORD_GUILD_ID`, then in `setup_hook` (runs once) loads every `cogs/*.py` as an extension and syncs commands to the guild. `command_prefix=[]` so text messages are ignored, and only default (non-privileged) intents are used. Errors in `setup_hook` are deliberately uncaught so a bot with no commands fails startup instead of staying up.
 - `src/cogs/`: one cog per slash command (`/ping`, `/view-stats`). Each command is guild-scoped with `@app_commands.guilds(...)`; there is intentionally no `copy_global_to`. Cog filenames contain hyphens, so they are only loadable as extensions, not importable normally.
-- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), system dirs (`SYSTEM_DIRS`: the dir and everything under it), per-container runtime mounts (`RUNTIME_DIRS`: only what's under them, so a dedicated `/var/lib/docker` disk still shows) and repeat mounts of the same device, skips mount points on the same filesystem as their parent (not actually mounted from the container's view), then `os.statvfs` measures each under `/host`. This runs on a dedicated single-thread executor with a 5s timeout, so a dead network mount can't starve the default pool or hang the command. The table is cut off with a "... N more" row before the 4096-char embed limit. Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". The command defers first (CPU sampling alone takes 1s, Discord's initial-response deadline is 3s), then sends two PrettyTable embeds as an ephemeral followup and deletes it after 30s.
+- `/view-stats`: memory from `meminfo`, CPU % from two `stat` samples 1s apart, uptime from `uptime`, all read under `PROC_ROOT` (`/host_proc` if mounted, else the container's `/proc`). Disk usage: `parse_mounts` reads the host's mount table (`/host_proc/1/mounts`), drops pseudo filesystems (`PSEUDO_FS_TYPES`), system dirs (`SYSTEM_DIRS`: the dir and everything under it), per-container runtime mounts (`RUNTIME_DIRS`: only what's under them, so a dedicated `/var/lib/docker` disk still shows) and repeat mounts of the same device, skips mount points on the same filesystem as their parent (not actually mounted from the container's view), then `os.statvfs` measures each under `/host`. This runs on a dedicated single-thread executor with a 5s timeout, so a dead network mount can't starve the default pool or hang the command. The table is cut off with a "... N more" row before the 4096-char embed limit. Without both mounts it uses the container's `/proc/self/mounts`. A failed memory/CPU/uptime read is logged and shows "Unavailable". The command defers first (CPU sampling alone takes 1s, Discord's initial-response deadline is 3s), then sends two plain fixed-width tables (`format_table`) as embeds in an ephemeral followup and deletes it with `message.delete(delay=30)`.
 - No permissions model: anyone in the guild can run every command.
 
 ## Container/image details that matter
@@ -50,7 +50,7 @@ Release flow: work on a branch, open a PR, squash-merge to `main`, then `gh rele
 - Stats are read from the `/proc:/host_proc:ro` mount. Without it the container's `/proc` is used, which still shows host-wide memory/CPU/uptime unless lxcfs is in use.
 - Host drives are visible through the `/:/host:ro,rslave` mount (read-only; `rslave` makes drives mounted after container start show up, but Docker refuses it where host `/` isn't a shared mount, e.g. Docker Desktop, so test there with `/:/host:ro`). The bot runs as uid/gid 10001 so it can't match a real host user (uid 1000 usually is, and its files and `/proc/<pid>/environ` would be readable); keep it that way.
 - pip is uninstalled from the runtime venv after install (removes vendored-library CVEs), so nothing can be pip-installed at runtime.
-- `discord.py` is unpinned.
+- `discord.py` is pinned in the dockerfile; bump it deliberately. It is the only pip dependency.
 
 ## Logging
 
@@ -58,6 +58,6 @@ Release flow: work on a branch, open a PR, squash-merge to `main`, then `gh rele
 
 ## Testing against Discord
 
-Slash commands can't be invoked by the bot itself; a human has to run them in Discord. A command that succeeds logs nothing, so ask the person what they saw. For `/view-stats` flow changes without Discord, call `ViewStats.view_stats.callback(cog, fake_interaction)` with stub `response.defer`, `followup.send` and `delete_original_response`.
+Slash commands can't be invoked by the bot itself; a human has to run them in Discord. A command that succeeds logs nothing, so ask the person what they saw. For `/view-stats` flow changes without Discord, call `ViewStats.view_stats.callback(cog, fake_interaction)` with stub `response.defer` and `followup.send` (returning a message stub with `delete(delay=)`).
 
 On Docker Desktop, `/host` shows the Linux VM's mounts (e.g. `/host_mnt/*`), not the Mac's, and `rslave` is refused; use `/:/host:ro` there. Running a second instance with the **same token** as a deployed bot makes both receive every command, and whichever responds first wins. Stop the deployed instance first, or use a separate bot application.
